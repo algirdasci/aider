@@ -72,6 +72,7 @@ is a great place to store your API keys and other provider API environment varia
 GEMINI_API_KEY=foo
 OPENROUTER_API_KEY=bar
 DEEPSEEK_API_KEY=baz
+HOSTINGER_ROUTER_API_KEY=qux
 ```
 
 #### YAML config file
@@ -86,5 +87,6 @@ api-key:
 - gemini=foo      # Sets env var GEMINI_API_KEY=foo
 - openrouter=bar  # Sets env var OPENROUTER_API_KEY=bar
 - deepseek=baz    # Sets env var DEEPSEEK_API_KEY=baz
+- hostinger-router=qux  # Sets env var HOSTINGER_ROUTER_API_KEY=qux
 ```
 

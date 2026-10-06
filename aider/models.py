@@ -18,6 +18,10 @@ from PIL import Image
 
 from aider import __version__
 from aider.dump import dump  # noqa: F401
+from aider.hostinger_router import (
+    HOSTINGER_ROUTER_API_BASE,
+    HostingerRouterModelManager,
+)
 from aider.llm import litellm
 from aider.openrouter import OpenRouterModelManager
 from aider.sendchat import ensure_alternating_roles, sanity_check_messages
@@ -175,11 +179,15 @@ class ModelInfoManager:
 
         # Manager for the cached OpenRouter model database
         self.openrouter_manager = OpenRouterModelManager()
+        # Manager for the cached Hostinger Router model database
+        self.hostinger_router_manager = HostingerRouterModelManager()
 
     def set_verify_ssl(self, verify_ssl):
         self.verify_ssl = verify_ssl
         if hasattr(self, "openrouter_manager"):
             self.openrouter_manager.set_verify_ssl(verify_ssl)
+        if hasattr(self, "hostinger_router_manager"):
+            self.hostinger_router_manager.set_verify_ssl(verify_ssl)
 
     def _load_cache(self):
         if self._cache_loaded:
@@ -247,6 +255,15 @@ class ModelInfoManager:
         return dict()
 
     def get_model_info(self, model):
+        local_info = self.local_model_metadata.get(model)
+        if local_info:
+            return local_info
+
+        if model.startswith("hostinger_router/"):
+            hostinger_info = self.hostinger_router_manager.get_model_info(model)
+            if hostinger_info:
+                return hostinger_info
+
         cached_info = self.get_model_from_cached_json_db(model)
 
         litellm_info = None
@@ -727,6 +744,7 @@ class Model(ModelSettings):
             gemini="GEMINI_API_KEY",
             anthropic="ANTHROPIC_API_KEY",
             groq="GROQ_API_KEY",
+            hostinger_router="HOSTINGER_ROUTER_API_KEY",
             fireworks_ai="FIREWORKS_API_KEY",
         )
         var = None
@@ -763,6 +781,11 @@ class Model(ModelSettings):
                     ]
                     if not res["missing_keys"]:
                         res["keys_in_environment"] = True
+
+        # The pinned litellm predates the hostinger_router provider, so it
+        # reports an unknown provider as fully validated. Check our key first.
+        if self.is_hostinger_router():
+            return validate_variables(["HOSTINGER_ROUTER_API_KEY"])
 
         if res["keys_in_environment"]:
             return res
@@ -931,6 +954,9 @@ class Model(ModelSettings):
     def is_ollama(self):
         return self.name.startswith("ollama/") or self.name.startswith("ollama_chat/")
 
+    def is_hostinger_router(self):
+        return self.name.startswith("hostinger_router/")
+
     def github_copilot_token_to_open_ai_key(self, extra_headers):
         # check to see if there's an openai api key
         # If so, check to see if it's expire
@@ -1009,6 +1035,19 @@ class Model(ModelSettings):
             kwargs["tool_choice"] = {"type": "function", "function": {"name": function["name"]}}
         if self.extra_params:
             kwargs.update(self.extra_params)
+        if self.is_hostinger_router():
+            # litellm<1.83 does not know the hostinger_router provider, so
+            # route through the generic openai/ prefix with our base URL and
+            # key. Cost/metadata lookup still uses the hostinger_router/...
+            # name via local model metadata. Drop this shim once aider's
+            # pinned litellm ships the hostinger_router provider.
+            kwargs["model"] = "openai/" + self.name[len("hostinger_router/") :]
+            if "api_base" not in kwargs:
+                kwargs["api_base"] = (
+                    os.environ.get("HOSTINGER_ROUTER_API_BASE") or HOSTINGER_ROUTER_API_BASE
+                )
+            if "api_key" not in kwargs:
+                kwargs["api_key"] = os.environ.get("HOSTINGER_ROUTER_API_KEY")
         if self.is_ollama() and "num_ctx" not in kwargs:
             num_ctx = int(self.token_count(messages) * 1.25) + 8192
             kwargs["num_ctx"] = num_ctx
@@ -1230,6 +1269,11 @@ def fuzzy_match_models(name):
     chat_models = set()
     model_metadata = list(litellm.model_cost.items())
     model_metadata += list(model_info_manager.local_model_metadata.items())
+
+    # Hostinger Router's catalog is fetched live, so fold it in directly.
+    if "hostinger_router".startswith(name) or name.startswith("hostinger_router"):
+        for model in model_info_manager.hostinger_router_manager.list_chat_models():
+            chat_models.add(model)
 
     for orig_model, attrs in model_metadata:
         model = orig_model.lower()

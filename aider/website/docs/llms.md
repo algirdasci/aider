@@ -28,6 +28,7 @@ Aider works best with these models, which are skilled at editing code:
 Aider works with a number of **free** API providers:
 
 - [OpenRouter offers free access to many models](https://openrouter.ai/models/?q=free), with limitations on daily usage.
+- [Hostinger Router](/docs/llms/hostinger-router.html) provides multi-model access with credit-based billing.
 - Google's [Gemini 2.5 Pro Exp](/docs/llms/gemini.html) works very well with aider.
 
 ## Local models
